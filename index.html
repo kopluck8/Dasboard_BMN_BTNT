@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Kebijakan keamanan: halaman tidak boleh menghubungi server mana pun.
+       Data .xlsx hanya dibaca di memori browser. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Dashboard Aset BMN</title>
+  <meta name="description" content="Dashboard pembacaan Daftar Aset BMN: ringkasan, kesimpulan otomatis, dan hal yang perlu diperhatikan. File diproses di browser.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='8' width='3' height='7' rx='1' fill='%232a78d6'/%3E%3Crect x='6.5' y='4' width='3' height='11' rx='1' fill='%232a78d6'/%3E%3Crect x='12' y='1' width='3' height='14' rx='1' fill='%232a78d6'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <div class="brand">
+        <svg width="28" height="28" viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="8" width="3" height="7" rx="1" fill="currentColor"/><rect x="6.5" y="4" width="3" height="11" rx="1" fill="currentColor"/><rect x="12" y="1" width="3" height="14" rx="1" fill="currentColor"/></svg>
+        <div>
+          <h1>Dashboard Aset BMN</h1>
+          <p id="meta">Ringkasan, kesimpulan, dan hal yang perlu diperhatikan dari Daftar Aset</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="btn hidden" id="btnGanti" type="button">Ganti file</button>
+        <button class="btn" id="btnTheme" type="button" aria-label="Ganti tema terang/gelap">Tema</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- Tampilan awal: pilih file -->
+    <section id="empty">
+      <div class="drop" id="drop">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13l2 2 4-4"/></svg>
+        <h2>Pilih file Daftar Aset (.xlsx)</h2>
+        <p>Tarik file ke sini, atau</p>
+        <p><label class="btn primary" for="file">Pilih file…</label>
+          <input id="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="sr-only"></p>
+        <p id="status" class="loading" aria-live="polite"></p>
+        <div class="privacy">
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1l6 2.5v4C14 11 11.4 14 8 15 4.6 14 2 11 2 7.5v-4z" fill="currentColor"/><path d="M5.3 8l1.9 1.9 3.5-3.6" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+          <span><b>Data tidak diunggah ke mana pun.</b> File dibaca langsung di browser Anda dan hilang saat halaman ditutup. Halaman ini juga dikunci agar tidak bisa mengirim data ke server.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Dashboard -->
+    <section id="dash" class="hidden">
+      <nav class="tabs" role="tablist" aria-label="Bagian dashboard">
+        <button class="tab" role="tab" id="t-ringkasan" aria-controls="p-ringkasan" aria-selected="true" data-tab="ringkasan">Ringkasan</button>
+        <button class="tab" role="tab" id="t-perhatian" aria-controls="p-perhatian" aria-selected="false" data-tab="perhatian">Perlu perhatian<span class="count hidden" id="perhatianCount"></span></button>
+        <button class="tab" role="tab" id="t-umur" aria-controls="p-umur" aria-selected="false" data-tab="umur">Kendaraan &amp; umur</button>
+        <button class="tab" role="tab" id="t-detail" aria-controls="p-detail" aria-selected="false" data-tab="detail">Detail aset</button>
+      </nav>
+
+      <!-- RINGKASAN -->
+      <div role="tabpanel" id="p-ringkasan" aria-labelledby="t-ringkasan">
+        <div class="tiles" id="kpi"></div>
+        <div class="grid g-2">
+          <div class="card">
+            <h2>Kesimpulan</h2>
+            <p class="sub">Disusun otomatis dari data</p>
+            <ol class="kesimpulan" id="kesimpulan"></ol>
+          </div>
+          <div class="card">
+            <h2>Hal yang perlu diperhatikan</h2>
+            <p class="sub">Diurutkan dari yang paling penting</p>
+            <ul class="alerts" id="alerts"></ul>
+          </div>
+        </div>
+        <div class="grid g-2 mt">
+          <div class="card">
+            <h2>Kondisi aset</h2>
+            <p class="sub">Jumlah unit menurut kondisi</p>
+            <div id="chKondisi"></div>
+          </div>
+          <div class="card">
+            <h2>Jumlah aset per jenis BMN</h2>
+            <p class="sub">Unit</p>
+            <div id="chJumlah"></div>
+          </div>
+        </div>
+        <div class="card mt">
+          <h2>Nilai per jenis BMN</h2>
+          <p class="sub">Panjang bar = nilai perolehan, dibagi menjadi nilai buku (sisa) dan yang sudah disusutkan</p>
+          <div id="chNilai"></div>
+        </div>
+      </div>
+
+      <!-- PERLU PERHATIAN -->
+      <div role="tabpanel" id="p-perhatian" aria-labelledby="t-perhatian" class="hidden">
+        <h2 class="section-title">Kandidat penghapusan</h2>
+        <p class="section-sub">Aset Rusak Berat, Henti Guna, atau sudah Usul Hapus, beserta pemeriksaan konsistensinya</p>
+        <div class="tiles" id="hapusTiles"></div>
+        <div class="checks" id="hapusChecks"></div>
+        <div class="grid g-2 mt">
+          <div class="card">
+            <h2>Barang terbanyak</h2>
+            <p class="sub">10 nama barang dengan jumlah kandidat penghapusan terbanyak</p>
+            <div id="chHapusNama"></div>
+          </div>
+          <div class="card">
+            <h2>Per jenis BMN</h2>
+            <p class="sub">Unit kandidat penghapusan</p>
+            <div id="chHapusJenis"></div>
+          </div>
+        </div>
+
+        <h2 class="section-title">Kelengkapan data</h2>
+        <p class="section-sub">Setiap pemeriksaan hanya berlaku untuk jenis aset yang relevan, misalnya sertipikat hanya untuk tanah</p>
+        <div class="checks" id="dataChecks"></div>
+
+        <h2 class="section-title">Penggunaan BMN</h2>
+        <p class="section-sub">Aset idle atau digunakan pihak lain</p>
+        <div class="checks" id="gunaChecks"></div>
+      </div>
+
+      <!-- KENDARAAN & UMUR -->
+      <div role="tabpanel" id="p-umur" aria-labelledby="t-umur" class="hidden">
+        <div class="tiles" id="umurTiles"></div>
+        <div class="card">
+          <h2>Jumlah aset per tahun perolehan</h2>
+          <p class="sub">Puncak pengadaan berarti banyak aset seumur yang akan membutuhkan penggantian bersamaan</p>
+          <div id="chTahun"></div>
+        </div>
+        <div class="card mt">
+          <h2>Umur &amp; penyusutan per jenis</h2>
+          <p class="sub">Peralatan &amp; kendaraan. Tanah, bangunan, jalan, dan instalasi tidak dimasukkan.</p>
+          <div id="tblUmur"></div>
+        </div>
+        <div class="card mt">
+          <h2>Daftar kendaraan</h2>
+          <p class="sub" id="kendSub"></p>
+          <div id="tblKend"></div>
+        </div>
+      </div>
+
+      <!-- DETAIL -->
+      <div role="tabpanel" id="p-detail" aria-labelledby="t-detail" class="hidden">
+        <div class="card">
+          <div class="filters">
+            <label class="sr-only" for="fCari">Cari</label>
+            <input type="search" id="fCari" placeholder="Cari nama, merk, kode, NUP, lokasi, no polisi…">
+            <label class="sr-only" for="fJenis">Jenis BMN</label>
+            <select id="fJenis"></select>
+            <label class="sr-only" for="fKondisi">Kondisi</label>
+            <select id="fKondisi"></select>
+            <label class="sr-only" for="fFlag">Penanda</label>
+            <select id="fFlag"></select>
+            <button class="btn sm" id="btnReset" type="button">Reset</button>
+            <button class="btn sm" id="btnCsv" type="button">Unduh CSV</button>
+          </div>
+          <div id="tblDetail"></div>
+        </div>
+      </div>
+
+      <p class="foot" id="foot"></p>
+    </section>
+  </main>
+
+  <dialog id="dlg" aria-labelledby="dlgTitle">
+    <div class="dh">
+      <div><h2 id="dlgTitle"></h2><p id="dlgSub"></p></div>
+      <button class="btn sm" id="dlgClose" type="button">Tutup</button>
+    </div>
+    <div class="db" id="dlgBody"></div>
+  </dialog>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/xlsx-reader.js"></script>
+  <script src="assets/js/analisis.js"></script>
+  <script src="assets/js/charts.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
