@@ -45,10 +45,12 @@
       if (!norm.assets.length) throw new Error('Tidak ada baris aset di dalam file.');
       const stats = A.analyze(norm.assets, cfg, norm.headers);
       norm.assets.forEach(a => {
-        a._hay = [a.nama, a.merk, a.tipe, a.kodeBarang, a.nup, a.lokasi, a.noPolisi, a.jenis, a.raw['Nama'], a.raw['Kode Register']].join(' ').toLowerCase();
+        a._hay = A.util.normText([a.nama, a.merk, a.tipe, a.kodeBarang, a.nup, a.lokasi, a.noPolisi, a.jenis, a.raw['Nama'], a.raw['Kode Register']].join(' '));
+        a._hayRapat = a._hay.replace(/ /g, '');
       });
       Object.assign(state, { assets: norm.assets, headers: norm.headers, acuan: norm.acuan, stats, fileName: file.name, sheet: book.sheetName });
-      state.filter = { q: '', jenis: '', kondisi: '', flag: '' };
+      state.filter = { q: '', jenis: '', kondisi: '', flag: '', ids: null, idsLabel: '' };
+      state.qs = '';
       state.page = 0;
       setStatus('');
       renderAll();
@@ -124,6 +126,7 @@
   }
   const th = (label, num) => `<th${num ? ' class="num"' : ''}>${esc(label)}</th>`;
   const shortGuna = g => g.replace(/^Digunakan sendiri untuk /i, 'Sendiri: ').replace(/^Digunakan oleh satker lain.*$/i, 'Satker lain (1 K/L)');
+  const merkTipe = (m, t) => (m && t && A.util.normText(m) === A.util.normText(t) ? m : [m, t].filter(Boolean).join(' · '));
   const umurStr = u => (u == null ? '–' : new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 }).format(u));
 
   // ---------------- Render semua ----------------
@@ -145,6 +148,7 @@
     tabRender.umur = renderUmur;
     tabRender.detail = renderDetail;
     initDetailControls();
+    initQuick();
     showTab('ringkasan');
   }
 
@@ -160,6 +164,8 @@
       tile('Kandidat penghapusan', fmt.n(s.hapus.n) + ' unit', 'Nilai perolehan ' + fmt.rpc(s.hapus.perolehan)),
       tile('Data perlu dilengkapi', fmt.n(dataAssets) + ' aset', `${dataChecks} jenis pemeriksaan bermasalah`)
     ].join('');
+
+    renderQuick();
 
     $('kesimpulan').innerHTML = s.kesimpulan.map(k => `<li>${k}</li>`).join('');
 
@@ -207,6 +213,93 @@
         { label: 'Sudah disusutkan', num: true, get: d => fmt.rp(d.values.susut) }
       ]
     });
+  }
+
+
+  // ---------------- Cari cepat (Ringkasan) ----------------
+  function initQuick() {
+    const inp = $('qCari');
+    // Saran ketik: nama barang yang ada di file, urut dari yang paling banyak.
+    const cnt = new Map();
+    state.assets.forEach(a => cnt.set(a.nama, (cnt.get(a.nama) || 0) + 1));
+    const top = [...cnt].sort((x, y) => y[1] - x[1]);
+    $('qSaran').innerHTML = top.map(([n, c]) => `<option value="${esc(n)}">${fmt.n(c)} unit</option>`).join('');
+    $('qContoh').innerHTML = '<span>Contoh:</span>' + top.slice(0, 4).map(([n]) => `<button class="chip" type="button" data-q="${esc(n)}">${esc(n)}</button>`).join('');
+    $('qContoh').querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => { inp.value = b.dataset.q; state.qs = inp.value; renderQuick(); inp.focus(); }));
+    inp.value = state.qs || '';
+    if (!initQuick.bound) {
+      initQuick.bound = true;
+      let to = null;
+      inp.addEventListener('input', () => { clearTimeout(to); to = setTimeout(() => { state.qs = inp.value; renderQuick(); }, 200); });
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') { clearTimeout(to); state.qs = inp.value; renderQuick(); } if (e.key === 'Escape') { inp.value = ''; state.qs = ''; renderQuick(); } });
+    }
+  }
+
+  function miniList(title, items, max) {
+    if (!items.length) return '';
+    const rest = items.length - max;
+    return `<div class="qs-box"><h3>${esc(title)}</h3><ul class="mini">${items.slice(0, max).map(i => `<li><span>${esc(i.label)}</span><b>${fmt.n(i.n)}</b></li>`).join('')}${rest > 0 ? `<li class="muted"><span>${rest} lainnya</span><b></b></li>` : ''}</ul></div>`;
+  }
+
+  function renderQuick() {
+    const out = $('qHasil');
+    const q = (state.qs || '').trim();
+    if (A.util.normText(q).length < 2) { out.innerHTML = ''; return; }
+    const r = A.ringkasCari(state.assets, q, cfg);
+    if (!r.n) {
+      out.innerHTML = `<div class="qs-empty">Tidak ada aset yang cocok dengan “${esc(q)}”. Coba kata yang lebih pendek (mis. hanya “pompa”) atau pilih dari saran saat mengetik.</div>`;
+      return;
+    }
+    const k = r.kondisi;
+    const tahun = r.tahunMin == null ? '–' : (r.tahunMin === r.tahunMax ? String(r.tahunMin) : `${r.tahunMin}–${r.tahunMax}`);
+    const maxG = 10;
+    out.innerHTML = `
+      <div class="qs-head">
+        <div><span class="qs-n">${fmt.n(r.n)} unit</span> cocok dengan “${esc(q)}”</div>
+        <div class="qs-act"><button class="btn sm primary" type="button" id="qLihat">Lihat ${fmt.n(r.n)} aset di Detail</button><button class="btn sm" type="button" id="qBersih">Bersihkan</button></div>
+      </div>
+      <div class="tiles qs-tiles">
+        ${tile('Jumlah', fmt.n(r.n) + ' unit', `${r.grup.length} variasi nama/merk/tipe`)}
+        ${tile('Kondisi Baik', fmt.n(k['Baik'] || 0) + ' unit', `Rusak Ringan ${fmt.n(k['Rusak Ringan'] || 0)} · Rusak Berat ${fmt.n(k['Rusak Berat'] || 0)}`)}
+        ${tile('Nilai perolehan', fmt.rpc(r.perolehan), fmt.rp(r.perolehan))}
+        ${tile('Nilai buku', fmt.rpc(r.buku), `${fmt.n(r.habis)} unit sudah Rp0`)}
+        ${tile('Tahun perolehan', tahun, r.umurRata == null ? '' : `Rata-rata umur ${umurStr(r.umurRata)} tahun`)}
+        ${tile('Kandidat penghapusan', fmt.n(r.hapus) + ' unit', r.hapus ? 'Rusak Berat / Henti Guna / Usul Hapus' : 'Tidak ada')}
+      </div>
+      <div id="qKondisi"></div>
+      <h3>Rincian barang yang cocok</h3>
+      <div class="tbl-wrap"><table class="resp">
+        <thead><tr>${th('Nama barang')}${th('Merk / tipe')}${th('Unit', 1)}${th('Baik', 1)}${th('Rusak Ringan', 1)}${th('Rusak Berat', 1)}${th('Nilai perolehan', 1)}</tr></thead>
+        <tbody>${r.grup.slice(0, maxG).map(g => `<tr>
+          <td data-label="Nama barang"><div>${esc(g.nama)}</div></td>
+          <td data-label="Merk / tipe"><div>${esc(merkTipe(g.merk, g.tipe)) || '–'}</div></td>
+          <td data-label="Unit" class="num"><div><b>${fmt.n(g.n)}</b></div></td>
+          <td data-label="Baik" class="num"><div>${fmt.n(g.baik)}</div></td>
+          <td data-label="Rusak Ringan" class="num"><div>${fmt.n(g.rr)}</div></td>
+          <td data-label="Rusak Berat" class="num"><div>${fmt.n(g.rb)}</div></td>
+          <td data-label="Nilai perolehan" class="num"><div>${fmt.rp(g.perolehan)}</div></td></tr>`).join('')}</tbody>
+      </table></div>
+      ${r.grup.length > maxG ? `<p class="note-box">Ditampilkan ${maxG} dari ${r.grup.length} variasi. Perjelas kata kunci atau buka di Detail untuk daftar lengkap.</p>` : ''}
+      <div class="qs-grid">
+        ${miniList('Lokasi ruang', r.lokasi, 5)}
+        ${miniList('Status penggunaan', r.guna, 4)}
+        ${r.penanda.length ? `<div class="qs-box"><h3>Penanda</h3><ul class="mini">${r.penanda.map(p => `<li><span>${C.sevChip(p.sev)} ${esc(p.label)}</span><b>${fmt.n(p.n)}</b></li>`).join('')}</ul></div>` : miniList('Jenis BMN', r.jenis, 4)}
+      </div>`;
+
+    C.kondisiStack($('qKondisi'), [
+      { label: 'Baik', n: k['Baik'] || 0, cls: 'good', sev: 'good' },
+      { label: 'Rusak Ringan', n: k['Rusak Ringan'] || 0, cls: 'warning', sev: 'warning' },
+      { label: 'Rusak Berat', n: k['Rusak Berat'] || 0, cls: 'critical', sev: 'critical' }
+    ], r.n, fmt.n, fmt.pct);
+
+    $('qLihat').addEventListener('click', () => {
+      resetFilter();
+      state.filter.ids = new Set(r.ids);
+      state.filter.idsLabel = q;
+      showTab('detail');
+      window.scrollTo({ top: 0 });
+    });
+    $('qBersih').addEventListener('click', () => { $('qCari').value = ''; state.qs = ''; renderQuick(); $('qCari').focus(); });
   }
 
   // ---------------- Perlu perhatian ----------------
@@ -274,7 +367,7 @@
     $('tblKend').innerHTML = `<div class="tbl-wrap tall"><table class="resp">
       <thead><tr>${th('Nama barang')}${th('Merk / tipe')}${th('No Polisi')}${th('Tahun', 1)}${th('Umur (th)', 1)}${th('Kondisi')}${th('Nilai perolehan', 1)}${th('Nilai buku', 1)}${th('Penggunaan')}${th('Penanda')}</tr></thead>
       <tbody>${k.map(a => `<tr class="click" data-id="${a.id}" tabindex="0">
-        <td data-label="Nama barang"><div>${esc(a.nama)}</div></td><td data-label="Merk / tipe"><div>${esc([a.merk, a.tipe].filter(Boolean).join(' · '))}</div></td><td data-label="No Polisi" class="nowrap"><div>${esc(a.noPolisi) || '–'}</div></td>
+        <td data-label="Nama barang"><div>${esc(a.nama)}</div></td><td data-label="Merk / tipe"><div>${esc(merkTipe(a.merk, a.tipe))}</div></td><td data-label="No Polisi" class="nowrap"><div>${esc(a.noPolisi) || '–'}</div></td>
         <td data-label="Tahun" class="num"><div>${a.tahun || '–'}</div></td><td data-label="Umur (th)" class="num"><div>${umurStr(a.umur)}</div></td><td data-label="Kondisi"><div>${kondisiHtml(a.kondisi)}</div></td>
         <td data-label="Nilai perolehan" class="num"><div>${fmt.rp(a.nilaiPerolehan)}</div></td><td data-label="Nilai buku" class="num"><div>${fmt.rp(a.nilaiBuku)}</div></td><td data-label="Penggunaan"><div>${esc(shortGuna(a.statusGuna))}</div></td>
         <td data-label="Penanda"><div>${flagBadges(a, ['tua', 'habis_susut']) || '–'}</div></td></tr>`).join('')}</tbody>
@@ -287,7 +380,7 @@
     { key: 'no', label: 'No', num: true, get: a => Number(a.no) || a.id + 1 },
     { key: 'jenis', label: 'Jenis BMN', get: a => a.jenis, show: a => esc(fmt.jenis(a.jenis)) },
     { key: 'kode', label: 'Kode / NUP', get: a => a.kodeBarang + '.' + a.nup.padStart(5, '0'), show: a => `${esc(a.kodeBarang)}<br>NUP ${esc(a.nup)}` },
-    { key: 'nama', label: 'Nama barang', get: a => a.nama.toLowerCase(), show: a => `${esc(a.nama)}${a.merk || a.tipe ? `<br><span class="note">${esc([a.merk, a.tipe].filter(Boolean).join(' · '))}</span>` : ''}` },
+    { key: 'nama', label: 'Nama barang', get: a => a.nama.toLowerCase(), show: a => `${esc(a.nama)}${a.merk || a.tipe ? `<br><span class="note">${esc(merkTipe(a.merk, a.tipe))}</span>` : ''}` },
     { key: 'kondisi', label: 'Kondisi', get: a => a.kondisi, show: a => kondisiHtml(a.kondisi) },
     { key: 'tahun', label: 'Tahun', num: true, get: a => a.tahun || 0, show: a => a.tahun || '–' },
     { key: 'perolehan', label: 'Nilai perolehan', num: true, get: a => a.nilaiPerolehan, show: a => fmt.rp(a.nilaiPerolehan) },
@@ -310,7 +403,7 @@
     if (!initDetailControls.bound) {
       initDetailControls.bound = true;
       let to = null;
-      $('fCari').addEventListener('input', e => { clearTimeout(to); to = setTimeout(() => { state.filter.q = e.target.value.trim().toLowerCase(); state.page = 0; renderDetail(); }, 150); });
+      $('fCari').addEventListener('input', e => { clearTimeout(to); to = setTimeout(() => { state.filter.q = A.util.normText(e.target.value); state.page = 0; renderDetail(); }, 150); });
       $('fJenis').addEventListener('change', e => { state.filter.jenis = e.target.value; state.page = 0; renderDetail(); });
       $('fKondisi').addEventListener('change', e => { state.filter.kondisi = e.target.value; state.page = 0; renderDetail(); });
       $('fFlag').addEventListener('change', e => { state.filter.flag = e.target.value; state.page = 0; renderDetail(); });
@@ -319,7 +412,7 @@
     }
   }
   function resetFilter() {
-    state.filter = { q: '', jenis: '', kondisi: '', flag: '' };
+    state.filter = { q: '', jenis: '', kondisi: '', flag: '', ids: null, idsLabel: '' };
     state.page = 0;
     $('fCari').value = ''; $('fJenis').value = ''; $('fKondisi').value = ''; $('fFlag').value = '';
   }
@@ -333,8 +426,10 @@
 
   function filtered() {
     const f = state.filter;
+    const words = f.q ? f.q.split(' ') : [];
     let list = state.assets.filter(a =>
-      (!f.q || a._hay.includes(f.q)) &&
+      (!f.ids || f.ids.has(a.id)) &&
+      words.every(w => a._hay.includes(w) || a._hayRapat.includes(w)) &&
       (!f.jenis || a.jenis === f.jenis) &&
       (!f.kondisi || a.kondisi === f.kondisi) &&
       (!f.flag || (f.flag === '__any' ? a.flags.length > 0 : a.flags.includes(f.flag))));
@@ -358,6 +453,7 @@
     const totalNilai = list.reduce((s, a) => s + a.nilaiPerolehan, 0);
 
     $('tblDetail').innerHTML = `
+      ${f.ids ? `<div class="active-filter"><b>Hasil cari cepat:</b><span>“${esc(f.idsLabel)}” (${fmt.n(f.ids.size)} aset)</span><button class="linkbtn" type="button" id="clrIds">Hapus filter</button></div>` : ''}
       ${flagInfo ? `<div class="active-filter">${C.sevChip(flagInfo.sev)}<b>${esc(flagInfo.label)}</b><span>${esc(flagInfo.desc)}</span><button class="linkbtn" type="button" id="clrFlag">Hapus filter</button></div>` : ''}
       <div class="filters"><span class="info">${fmt.n(list.length)} aset · nilai perolehan ${fmt.rpc(totalNilai)}</span></div>
       <div class="tbl-wrap"><table class="resp">
@@ -371,6 +467,8 @@
         <button class="btn sm" type="button" id="pgNext" ${state.page >= pages - 1 ? 'disabled' : ''}>Berikutnya ›</button>
       </div>`;
 
+    const clrIds = $('clrIds');
+    if (clrIds) clrIds.addEventListener('click', () => { state.filter.ids = null; state.filter.idsLabel = ''; renderDetail(); });
     const clr = $('clrFlag');
     if (clr) clr.addEventListener('click', () => { state.filter.flag = ''; $('fFlag').value = ''; renderDetail(); });
     $('pgPrev').addEventListener('click', () => { state.page--; renderDetail(); });

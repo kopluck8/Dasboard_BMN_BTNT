@@ -347,5 +347,72 @@
     return out;
   }
 
-  root.AsetBMN = { normalize, analyze, FLAGS, FLAG, SEV_RANK, fmt, util: { str, num, kosong, esc } };
+  // ---------- cari cepat ----------
+  // Huruf kecil, tanpa aksen, tanda baca jadi spasi: "Pompa-Punggung" == "pompa punggung".
+  const normText = v => str(v).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+
+  /** Teks yang dicari: identitas barang saja (bukan lokasi), supaya jumlah tidak tercampur. */
+  function itemText(a) {
+    if (a._item == null) {
+      a._item = ' ' + normText([a.nama, a.merk, a.tipe, a.raw['Nama'], a.kodeBarang, a.jenis].join(' ')) + ' ';
+      a._itemRapat = a._item.replace(/ /g, ''); // "Lap Top" juga cocok dengan "laptop"
+    }
+    return a._item;
+  }
+
+  /**
+   * Semua kata pada kueri harus ada (urutan bebas).
+   * Kata berupa angka dicocokkan sebagai awalan kata (kode barang, ukuran).
+   * Kata huruf juga dicocokkan tanpa spasi, jadi "laptop" menemukan "Lap Top".
+   */
+  function cocok(assets, query) {
+    const tokens = normText(query).split(' ').filter(Boolean);
+    if (!tokens.length) return [];
+    return assets.filter(a => {
+      const t = itemText(a);
+      return tokens.every(tok => (/^\d+$/.test(tok) ? t.includes(' ' + tok) : (t.includes(tok) || a._itemRapat.includes(tok))));
+    });
+  }
+
+  function ringkasCari(assets, query, cfg) {
+    const list = cocok(assets, query);
+    const kondisi = { 'Baik': 0, 'Rusak Ringan': 0, 'Rusak Berat': 0 };
+    list.forEach(a => { kondisi[a.kondisi] = (kondisi[a.kondisi] || 0) + 1; });
+    const tahun = list.map(a => a.tahun).filter(Boolean);
+    const umur = list.map(a => a.umur).filter(u => u != null);
+
+    const grp = new Map();
+    list.forEach(a => {
+      const key = normText([a.nama, a.merk, a.tipe].join('|'));
+      if (!grp.has(key)) grp.set(key, { nama: a.nama, merk: a.merk, tipe: a.tipe, n: 0, baik: 0, rr: 0, rb: 0, perolehan: 0 });
+      const g = grp.get(key);
+      g.n++; g.perolehan += a.nilaiPerolehan;
+      if (a.kondisi === 'Baik') g.baik++; else if (a.kondisi === 'Rusak Ringan') g.rr++; else if (a.kondisi === 'Rusak Berat') g.rb++;
+    });
+    const countBy = fn => [...groupBy(list, fn)].map(([label, l]) => ({ label, n: l.length })).sort((x, y) => y.n - x.n);
+
+    const flagCount = {};
+    list.forEach(a => a.flags.forEach(f => { flagCount[f] = (flagCount[f] || 0) + 1; }));
+    const penanda = Object.keys(flagCount)
+      .filter(f => FLAG[f].sev !== 'info')
+      .map(f => ({ id: f, label: FLAG[f].label, sev: FLAG[f].sev, n: flagCount[f] }))
+      .sort((x, y) => SEV_RANK[x.sev] - SEV_RANK[y.sev] || y.n - x.n);
+
+    return {
+      query: str(query), ids: list.map(a => a.id), n: list.length,
+      kondisi,
+      perolehan: sum(list, 'nilaiPerolehan'), buku: sum(list, 'nilaiBuku'),
+      tahunMin: tahun.length ? Math.min(...tahun) : null, tahunMax: tahun.length ? Math.max(...tahun) : null,
+      umurRata: umur.length ? umur.reduce((s, x) => s + x, 0) / umur.length : null,
+      habis: list.filter(a => a.flags.includes('habis_susut')).length,
+      hapus: list.filter(a => a.flags.includes('hapus')).length,
+      grup: [...grp.values()].sort((x, y) => y.n - x.n),
+      jenis: countBy(a => fmt.jenis(a.jenis)),
+      lokasi: countBy(a => a.lokasi || '(kosong)'),
+      guna: countBy(a => a.statusGuna || '(kosong)'),
+      penanda
+    };
+  }
+
+  root.AsetBMN = { normalize, analyze, ringkasCari, cocok, FLAGS, FLAG, SEV_RANK, fmt, util: { str, num, kosong, esc, normText } };
 })(typeof window !== 'undefined' ? window : globalThis);
