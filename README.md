@@ -19,10 +19,25 @@ Karena itu, repo **boleh publik**: yang dipublikasikan hanya kode, bukan data as
 
 | Tab | Isi |
 |---|---|
-| **Ringkasan** | Angka utama, kesimpulan otomatis, daftar hal yang perlu diperhatikan (urut menurut tingkat kepentingan), kondisi aset, jumlah dan nilai per jenis BMN |
+| **Ringkasan** | **Cari cepat** (lihat di bawah), angka utama, kesimpulan otomatis, daftar hal yang perlu diperhatikan (urut menurut tingkat kepentingan), kondisi aset, jumlah dan nilai per jenis BMN |
 | **Perlu perhatian** | Kandidat penghapusan beserta pemeriksaan konsistensinya, kelengkapan data, dan penggunaan BMN (idle / satker lain) |
 | **Kendaraan & umur** | Tahun perolehan, umur dan penyusutan per jenis, daftar kendaraan |
 | **Detail aset** | Tabel lengkap: cari, filter (jenis, kondisi, penanda), urutkan, unduh CSV. Klik baris untuk melihat semua kolom |
+
+### Cari cepat
+
+Kotak paling atas di tab Ringkasan. Ketik nama barang, merk, tipe, atau kode barang (misalnya `pompa punggung`, `laptop`, `3010312004`). Hasil langsung muncul tanpa pindah halaman:
+
+- jumlah unit, kondisi (Baik / Rusak Ringan / Rusak Berat), nilai perolehan, nilai buku, rentang tahun perolehan, dan kandidat penghapusan;
+- rincian per variasi nama barang, merk, dan tipe, supaya terlihat aset mana yang ikut terhitung;
+- sebaran lokasi ruang, status penggunaan, dan penanda;
+- tombol **Lihat … aset di Detail** untuk membuka daftar per unit dan mengunduh CSV.
+
+Aturan pencocokan:
+- Semua kata harus ada, urutannya bebas. Huruf besar/kecil dan tanda baca diabaikan.
+- Spasi di dalam nama juga diabaikan, jadi `laptop` menemukan "Lap Top".
+- Lokasi ruang **tidak** ikut dicari, supaya jumlah barang tidak tercampur dengan nama ruangan. Untuk mencari per ruangan, pakai kotak cari di tab Detail.
+- Kata yang terlalu umum (misalnya `meja`) akan mengumpulkan semua variasinya. Periksa tabel rincian sebelum memakai angkanya.
 
 Setiap tombol **Lihat / Lihat daftar** membuka tab Detail yang sudah tersaring ke aset terkait, dan daftarnya bisa langsung diunduh sebagai CSV. CSV memakai pemisah `;` supaya langsung terbaca di Excel berbahasa Indonesia.
 
@@ -85,6 +100,7 @@ tests/cek-data.js        uji cepat di Node tanpa browser
 
 ```bash
 node tests/cek-data.js /lokasi/daftar-aset.xlsx
+node tests/cek-data.js /lokasi/daftar-aset.xlsx --cari "pompa punggung"
 ```
 
 Perintah ini mencetak angka total, hasil tiap pemeriksaan, dan teks kesimpulan. Gunakan untuk mencocokkan angka dengan Excel setelah mengubah aturan.
